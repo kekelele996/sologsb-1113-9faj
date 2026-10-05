@@ -31,6 +31,7 @@ import { useTargetStore } from '../stores/targetStore';
 import { useEquipmentStore } from '../stores/equipmentStore';
 import { FILTER_NAMES, SESSION_STATUSES, type SessionStatus } from '../types';
 import { axisMinutes, durationMinutes, formatMinutes } from '../utils/astro';
+import { darkWindow, nightUsedMinutes } from '../utils/scheduler';
 
 interface SessionFormState {
   nightId: string;
@@ -53,6 +54,8 @@ export default function SessionsPage() {
   const updateSession = useSessionStore((s) => s.updateSession);
   const removeSession = useSessionStore((s) => s.removeSession);
   const rescheduleToBackup = useSessionStore((s) => s.rescheduleToBackup);
+  const setConfirmed = useSessionStore((s) => s.setConfirmed);
+  const applyAutoSchedule = useSessionStore((s) => s.applyAutoSchedule);
   const nights = useNightStore((s) => s.nights);
   const targets = useTargetStore((s) => s.targets);
   const telescopes = useEquipmentStore((s) => s.telescopes);
@@ -89,6 +92,27 @@ export default function SessionsPage() {
 
   const conflictSet = useMemo(() => conflictIds(), [conflictIds]);
   const backupNights = useMemo(() => nights.filter((night) => night.backup), [nights]);
+
+  /** 每夜暗时段容量与有效段占用（编排台空档总览） */
+  const nightCapacities = useMemo(
+    () =>
+      [...nights]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((night) => ({ night, capacity: darkWindow(night).capacity, used: nightUsedMinutes(night.id, sessions) })),
+    [nights, sessions],
+  );
+
+  /** 编排台按单排段：暗时段容量有限，当夜放不下顺到后面的夜，不挤掉已确认的段 */
+  async function runAutoSchedule() {
+    setError('');
+    try {
+      const plan = await applyAutoSchedule();
+      const queuedText = plan.queued.length > 0 ? `；${plan.queued.length} 张单容量不足排队顺延（${plan.queued.map((item) => item.code).join('、')}）` : '';
+      setNotice(plan.created.length > 0 || plan.queued.length > 0 ? `自动编排完成：新排 ${plan.created.length} 段${queuedText}` : '自动编排完成：没有待编排的申请单');
+    } catch {
+      setError('编排台写入失败，本次编排已整体回滚（只退本侧），申请台台账未受影响；可重试');
+    }
+  }
 
   const visible = useMemo(() => {
     return [...sessions]
@@ -196,15 +220,21 @@ export default function SessionsPage() {
   return (
     <Box>
       <Typography variant="h5" sx={{ mb: 0.5 }}>
-        排程段列表与冲突检测
+        排程段与空档（编排台）
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        同一时段同一望远镜重复排入即进入冲突列表；支持勾选多个排程段批量改期到备用观测夜并填写改期原因。
+        编排台按申请单排段：每夜暗时段容量有限，当夜放不下排队顺到后面的夜，不挤掉已确认的段；申请单与期限归申请台管理，本页只读引用申请编号。
       </Typography>
 
       {notice ? (
         <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice('')}>
           {notice}
+        </Alert>
+      ) : null}
+
+      {error && !dialogOpen ? (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
         </Alert>
       ) : null}
 
@@ -215,6 +245,9 @@ export default function SessionsPage() {
       ) : null}
 
       <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }} alignItems="center">
+        <Button variant="contained" color="secondary" onClick={() => void runAutoSchedule()}>
+          自动编排（按单排段）
+        </Button>
         <Button variant="contained" onClick={openCreate}>
           新增排程段
         </Button>
@@ -241,6 +274,21 @@ export default function SessionsPage() {
         <Chip size="small" label={`命中 ${visible.length} / ${sessions.length}`} />
       </Stack>
 
+      <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }} alignItems="center">
+        <Typography variant="caption" color="text.secondary">
+          各夜暗时段容量（已占用 / 容量）：
+        </Typography>
+        {nightCapacities.map(({ night, capacity, used }) => (
+          <Chip
+            key={night.id}
+            size="small"
+            variant="outlined"
+            color={used > capacity ? 'error' : used >= capacity * 0.85 ? 'warning' : 'default'}
+            label={`${night.date} ${formatMinutes(used)} / ${formatMinutes(capacity)}`}
+          />
+        ))}
+      </Stack>
+
       <TableContainer component={Paper} variant="outlined">
         <Table size="small">
           <TableHead>
@@ -255,10 +303,12 @@ export default function SessionsPage() {
               <TableCell>观测夜</TableCell>
               <TableCell>时段</TableCell>
               <TableCell>目标</TableCell>
+              <TableCell>申请编号</TableCell>
               <TableCell>望远镜 / 终端</TableCell>
               <TableCell>滤镜</TableCell>
               <TableCell align="right">帧数</TableCell>
               <TableCell>状态</TableCell>
+              <TableCell>确认</TableCell>
               <TableCell>冲突</TableCell>
               <TableCell>改期原因</TableCell>
               <TableCell align="right">操作</TableCell>
@@ -278,7 +328,10 @@ export default function SessionsPage() {
                   key={session.id}
                   hover
                   selected={selected.includes(session.id)}
-                  sx={session.id === highlightId ? { boxShadow: 'inset 4px 0 0 #d32f2f' } : undefined}
+                  sx={{
+                    ...(session.id === highlightId ? { boxShadow: 'inset 4px 0 0 #d32f2f' } : null),
+                    ...(session.status === '已失效' ? { opacity: 0.55 } : null),
+                  }}
                 >
                   <TableCell padding="checkbox">
                     <Checkbox
@@ -298,12 +351,30 @@ export default function SessionsPage() {
                   </TableCell>
                   <TableCell>{targetById(session.targetId)?.name ?? '未知目标'}</TableCell>
                   <TableCell>
+                    {session.applicationId ? (
+                      <Typography variant="caption" sx={{ fontFamily: 'Menlo, Consolas, monospace' }}>
+                        {session.applicationId}
+                      </Typography>
+                    ) : (
+                      <Chip size="small" variant="outlined" color="warning" label="待认领" />
+                    )}
+                  </TableCell>
+                  <TableCell>
                     {telescopeById(session.telescopeId)?.code ?? '-'} / {instrumentById(session.instrumentId)?.model ?? '-'}
                   </TableCell>
                   <TableCell>{session.filterSlot}</TableCell>
                   <TableCell align="right">{session.plannedFrames}</TableCell>
                   <TableCell>
                     <StatusChip status={session.status} />
+                  </TableCell>
+                  <TableCell>
+                    <Checkbox
+                      size="small"
+                      checked={Boolean(session.confirmed)}
+                      disabled={session.status === '已失效' || session.status === '因云取消'}
+                      title="已确认的段不被自动编排与申请单重排挤掉"
+                      onChange={(event) => void setConfirmed(session.id, event.target.checked)}
+                    />
                   </TableCell>
                   <TableCell>
                     <ConflictBadge conflicts={conflicts} compact />

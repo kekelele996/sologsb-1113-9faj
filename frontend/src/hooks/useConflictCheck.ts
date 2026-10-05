@@ -1,5 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
+import { SCHEMA_VERSION } from './usePersistentStore';
 import type { ConflictItem, ObsSession } from '../types';
 import { overlapMinutes } from '../utils/astro';
 
@@ -40,9 +41,10 @@ function describe(a: ObsSession, b: ObsSession): ConflictItem | null {
   };
 }
 
-/** 输入设备与时段区间即返回冲突排程段数组；被排程段列表与设备分配视图消费 */
+/** 输入设备与时段区间即返回冲突排程段数组；被排程段列表与设备分配视图消费（已失效段不占空档，不参与冲突） */
 export function useConflictCheck(): ConflictCheckApi {
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
+  const sessions = useMemo(() => allSessions.filter((session) => session.status !== '已失效'), [allSessions]);
 
   const findConflicts = useCallback(
     (input: ConflictCheckInput): ConflictItem[] => {
@@ -57,7 +59,7 @@ export function useConflictCheck(): ConflictCheckApi {
         filterSlot: '',
         plannedFrames: 0,
         status: '待执行',
-        schemaVersion: 2,
+        schemaVersion: SCHEMA_VERSION,
       };
       return sessions
         .filter((session) => session.id !== input.ignoreSessionId)

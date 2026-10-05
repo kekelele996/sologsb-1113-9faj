@@ -2,9 +2,11 @@ import type { RouteObject } from 'react-router-dom';
 import { Box, Button, Typography } from '@mui/material';
 import App from '../App';
 import OverviewPage from '../pages/OverviewPage';
+import ApplicationsPage from '../pages/ApplicationsPage';
 import TargetsPage from '../pages/TargetsPage';
 import SessionsPage from '../pages/SessionsPage';
 import EquipmentPage from '../pages/EquipmentPage';
+import ReconcilePage from '../pages/ReconcilePage';
 import ExportPage from '../pages/ExportPage';
 
 function NotFound() {
@@ -23,16 +25,18 @@ function NotFound() {
   );
 }
 
-/** 全部路由：编排总览 + 目标库 / 排程段 / 设备分配 / 导出 */
+/** 全部路由：编排总览 + 申请台 / 目标库 / 编排台 / 设备分配 / 对账 / 导出 */
 export const routes: RouteObject[] = [
   {
     path: '/',
     element: <App />,
     children: [
       { index: true, element: <OverviewPage /> },
+      { path: 'applications', element: <ApplicationsPage /> },
       { path: 'targets', element: <TargetsPage /> },
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'equipment', element: <EquipmentPage /> },
+      { path: 'reconcile', element: <ReconcilePage /> },
       { path: 'export', element: <ExportPage /> },
       { path: '*', element: <NotFound /> },
     ],

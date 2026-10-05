@@ -24,9 +24,11 @@ const DRAWER_WIDTH = 224;
 
 const NAV_ITEMS = [
   { path: '/', label: '本夜编排总览' },
+  { path: '/applications', label: '观测申请单（申请台）' },
   { path: '/targets', label: '观测目标库' },
-  { path: '/sessions', label: '排程段与冲突' },
+  { path: '/sessions', label: '排程段与空档（编排台）' },
   { path: '/equipment', label: '设备分配视图' },
+  { path: '/reconcile', label: '对账与挂起' },
   { path: '/export', label: '导出观测清单' },
 ];
 

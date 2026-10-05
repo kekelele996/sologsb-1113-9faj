@@ -45,7 +45,10 @@ export default function EquipmentPage() {
   const [nightId, setNightId] = useState(currentNightId);
   const activeNightId = nightId || currentNightId;
   const night = nights.find((item) => item.id === activeNightId);
-  const nightSessions = useMemo(() => sessions.filter((session) => session.nightId === activeNightId), [sessions, activeNightId]);
+  const nightSessions = useMemo(
+    () => sessions.filter((session) => session.nightId === activeNightId && session.status !== '已失效'),
+    [sessions, activeNightId],
+  );
   const conflicts = useMemo(() => conflictsOfNight(activeNightId), [conflictsOfNight, activeNightId]);
   const slots = useMemo(() => Array.from({ length: NIGHT_TOTAL_MINUTES / SLOT_MINUTES }, (_, index) => index), []);
 
