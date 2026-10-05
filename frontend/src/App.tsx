@@ -28,6 +28,8 @@ const NAV_ITEMS = [
   { path: '/sessions', label: '排程段与冲突' },
   { path: '/equipment', label: '设备分配视图' },
   { path: '/export', label: '导出观测清单' },
+  { path: '/requests', label: '申请台' },
+  { path: '/reconcile', label: '对账台' },
 ];
 
 /** 应用外壳：左侧导航 + 顶栏快捷导出，负责数据装载就绪判定 */

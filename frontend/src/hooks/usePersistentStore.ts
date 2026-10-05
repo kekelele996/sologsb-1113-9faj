@@ -1,12 +1,12 @@
-import Dexie, { type Table } from 'dexie';
+import Dexie, { type Table, type Transaction } from 'dexie';
 import { useEffect, useState } from 'react';
-import type { Instrument, ObsNight, ObsSession, ObsTarget, Telescope } from '../types';
+import type { Instrument, ObsNight, ObsRequest, ObsSession, ObsTarget, Telescope } from '../types';
 
 /** IndexedDB 库名（浏览器本地存储，无后端） */
 export const DB_NAME = 'gbobsplan-db';
 
 /** 当前数据结构版本，写入每条记录并用于升级迁移判定 */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 class ObsPlanDB extends Dexie {
   targets!: Table<ObsTarget, string>;
@@ -14,6 +14,7 @@ class ObsPlanDB extends Dexie {
   telescopes!: Table<Telescope, string>;
   instruments!: Table<Instrument, string>;
   nights!: Table<ObsNight, string>;
+  requests!: Table<ObsRequest, string>;
   meta!: Table<{ key: string; value: string }, string>;
 
   constructor() {
@@ -55,12 +56,28 @@ class ObsPlanDB extends Dexie {
             }
           });
       });
+
+    // v3：新增申请台（申请单）；排程段增加 requestId 索引。
+    // 旧数据的段没有编号，升级时按目标和时段回填，挂不上的单列待认领。
+    this.version(3)
+      .stores({
+        targets: 'id, name, catalog, type, priority, magnitude',
+        sessions: 'id, nightId, targetId, telescopeId, instrumentId, startTime, status, backupNightId, requestId',
+        telescopes: 'id, code, status',
+        instruments: 'id, model, telescopeCode, terminalType',
+        nights: 'id, date, siteName, primary, backup',
+        requests: 'id, code, targetId, status, deadline, createdAt',
+        meta: 'key',
+      })
+      .upgrade(async (tx) => {
+        await backfillRequestLinks(tx);
+      });
   }
 }
 
 export const db = new ObsPlanDB();
 
-export type TableName = 'targets' | 'sessions' | 'telescopes' | 'instruments' | 'nights';
+export type TableName = 'targets' | 'sessions' | 'telescopes' | 'instruments' | 'nights' | 'requests';
 
 /** 写入单条记录（Dexie 读写封装，store 的增删改统一走这里） */
 export async function persistRow(table: TableName, row: unknown): Promise<void> {
@@ -75,6 +92,34 @@ export async function persistRows(table: TableName, rows: unknown[]): Promise<vo
 /** 删除记录 */
 export async function deleteRow(table: TableName, id: string): Promise<void> {
   await db.table(table).delete(id);
+}
+
+/**
+ * 旧数据升级：给没有申请编号的排程段按「目标 + 时段」回填 requestId。
+ * 时段匹配：观测夜日期在申请单期限内（night.date <= deadline）。
+ * 挂不上的（无申请单 / 同一目标有多张申请单）单列待认领，requestId 留空。
+ * 可在升级事务内调用，也可在事务外独立调用（seed 后补回填同样走这里）。
+ */
+export async function backfillRequestLinks(tx?: Transaction): Promise<number> {
+  const requests = (tx ? await tx.table('requests').toArray() : await db.requests.toArray()) as ObsRequest[];
+  const sessions = (tx ? await tx.table('sessions').toArray() : await db.sessions.toArray()) as ObsSession[];
+  const nights = (tx ? await tx.table('nights').toArray() : await db.nights.toArray()) as ObsNight[];
+  let linked = 0;
+  for (const session of sessions) {
+    if (session.requestId) continue;
+    const night = nights.find((item) => item.id === session.nightId);
+    if (!night) continue;
+    const candidates = requests.filter((request) => request.targetId === session.targetId && night.date <= request.deadline);
+    if (candidates.length !== 1) continue; // 0 个或多个候选：挂不上，单列待认领
+    session.requestId = candidates[0].id;
+    if (tx) {
+      await tx.table('sessions').put(session);
+    } else {
+      await db.sessions.put(session);
+    }
+    linked += 1;
+  }
+  return linked;
 }
 
 /* ------------------------------- 示例数据 ------------------------------- */
@@ -134,16 +179,27 @@ const SEED_SESSIONS: ObsSession[] = [
   { id: 's-14', nightId: 'night-002', targetId: 'target-001', startTime: '02:10', endTime: '03:10', telescopeId: 'tel-001', instrumentId: 'ins-002', filterSlot: 'L', plannedFrames: 30, status: '待执行', schemaVersion: SCHEMA_VERSION },
 ];
 
+/** 申请台示例数据：与排程段按目标 + 时段回填后，含已排满 / 部分排段 / 待排段三种状态 */
+const SEED_REQUESTS: ObsRequest[] = [
+  { id: 'req-001', code: 'SQ-2025-001', targetId: 'target-001', exposureMinutes: 120, deadline: '2025-10-15', status: '已排段', retryCount: 0, createdAt: '2025-10-01T00:00:00Z', schemaVersion: SCHEMA_VERSION },
+  { id: 'req-002', code: 'SQ-2025-002', targetId: 'target-002', exposureMinutes: 60, deadline: '2025-10-15', status: '已完成', retryCount: 0, createdAt: '2025-10-01T00:00:00Z', schemaVersion: SCHEMA_VERSION },
+  { id: 'req-003', code: 'SQ-2025-003', targetId: 'target-004', exposureMinutes: 200, deadline: '2025-10-15', status: '排段中', retryCount: 0, createdAt: '2025-10-02T00:00:00Z', schemaVersion: SCHEMA_VERSION },
+  { id: 'req-004', code: 'SQ-2025-004', targetId: 'target-010', exposureMinutes: 100, deadline: '2025-10-15', status: '已排段', retryCount: 0, createdAt: '2025-10-02T00:00:00Z', schemaVersion: SCHEMA_VERSION },
+  { id: 'req-005', code: 'SQ-2025-005', targetId: 'target-003', exposureMinutes: 70, deadline: '2025-10-12', status: '已完成', retryCount: 0, createdAt: '2025-10-01T00:00:00Z', schemaVersion: SCHEMA_VERSION },
+  { id: 'req-006', code: 'SQ-2025-006', targetId: 'target-006', exposureMinutes: 60, deadline: '2025-10-15', status: '待排段', retryCount: 0, createdAt: '2025-10-05T00:00:00Z', schemaVersion: SCHEMA_VERSION },
+];
+
 /** 首次打开（表内无数据）时写入示例数据 */
 export async function seedIfEmpty(): Promise<void> {
   const flag = await db.meta.get('seeded');
   if (flag) return;
-  const [targetCount, sessionCount, telescopeCount, instrumentCount, nightCount] = await Promise.all([
+  const [targetCount, sessionCount, telescopeCount, instrumentCount, nightCount, requestCount] = await Promise.all([
     db.targets.count(),
     db.sessions.count(),
     db.telescopes.count(),
     db.instruments.count(),
     db.nights.count(),
+    db.requests.count(),
   ]);
   // Dexie 的 transaction 最多接受 5 张表 + 作用域，因此 meta 标记在事务外写入
   await db.transaction('rw', db.targets, db.sessions, db.telescopes, db.instruments, db.nights, async () => {
@@ -153,22 +209,27 @@ export async function seedIfEmpty(): Promise<void> {
     if (instrumentCount === 0) await db.instruments.bulkPut(SEED_INSTRUMENTS);
     if (sessionCount === 0) await db.sessions.bulkPut(SEED_SESSIONS);
   });
+  if (requestCount === 0) await db.requests.bulkPut(SEED_REQUESTS);
+  // 种子排程段按目标 + 时段回填申请编号，挂不上的单列待认领
+  await backfillRequestLinks();
   await db.meta.put({ key: 'seeded', value: new Date().toISOString() });
 }
 
 /** 把 Dexie 数据同步到各 Zustand store（动态 import 规避模块循环依赖） */
 export async function hydrateAllStores(): Promise<void> {
-  const [{ useTargetStore }, { useSessionStore }, { useEquipmentStore }, { useNightStore }] = await Promise.all([
+  const [{ useTargetStore }, { useSessionStore }, { useEquipmentStore }, { useNightStore }, { useRequestStore }] = await Promise.all([
     import('../stores/targetStore'),
     import('../stores/sessionStore'),
     import('../stores/equipmentStore'),
     import('../stores/nightStore'),
+    import('../stores/requestStore'),
   ]);
   await Promise.all([
     useTargetStore.getState().hydrate(),
     useSessionStore.getState().hydrate(),
     useEquipmentStore.getState().hydrate(),
     useNightStore.getState().hydrate(),
+    useRequestStore.getState().hydrate(),
   ]);
 }
 

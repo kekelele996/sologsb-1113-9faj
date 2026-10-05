@@ -255,6 +255,7 @@ export default function SessionsPage() {
               <TableCell>观测夜</TableCell>
               <TableCell>时段</TableCell>
               <TableCell>目标</TableCell>
+              <TableCell>申请编号</TableCell>
               <TableCell>望远镜 / 终端</TableCell>
               <TableCell>滤镜</TableCell>
               <TableCell align="right">帧数</TableCell>
@@ -298,12 +299,24 @@ export default function SessionsPage() {
                   </TableCell>
                   <TableCell>{targetById(session.targetId)?.name ?? '未知目标'}</TableCell>
                   <TableCell>
+                    {session.requestId ? (
+                      <Chip size="small" variant="outlined" label={session.requestId} />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        待认领
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     {telescopeById(session.telescopeId)?.code ?? '-'} / {instrumentById(session.instrumentId)?.model ?? '-'}
                   </TableCell>
                   <TableCell>{session.filterSlot}</TableCell>
                   <TableCell align="right">{session.plannedFrames}</TableCell>
                   <TableCell>
-                    <StatusChip status={session.status} />
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <StatusChip status={session.status} />
+                      {session.invalidated ? <Chip size="small" color="warning" label="已失效" /> : null}
+                    </Stack>
                   </TableCell>
                   <TableCell>
                     <ConflictBadge conflicts={conflicts} compact />

@@ -6,6 +6,8 @@ import TargetsPage from '../pages/TargetsPage';
 import SessionsPage from '../pages/SessionsPage';
 import EquipmentPage from '../pages/EquipmentPage';
 import ExportPage from '../pages/ExportPage';
+import RequestsPage from '../pages/RequestsPage';
+import ReconcilePage from '../pages/ReconcilePage';
 
 function NotFound() {
   return (
@@ -23,7 +25,7 @@ function NotFound() {
   );
 }
 
-/** 全部路由：编排总览 + 目标库 / 排程段 / 设备分配 / 导出 */
+/** 全部路由：编排总览 + 目标库 / 排程段 / 设备分配 / 导出 + 申请台 / 对账台 */
 export const routes: RouteObject[] = [
   {
     path: '/',
@@ -34,6 +36,8 @@ export const routes: RouteObject[] = [
       { path: 'sessions', element: <SessionsPage /> },
       { path: 'equipment', element: <EquipmentPage /> },
       { path: 'export', element: <ExportPage /> },
+      { path: 'requests', element: <RequestsPage /> },
+      { path: 'reconcile', element: <ReconcilePage /> },
       { path: '*', element: <NotFound /> },
     ],
   },

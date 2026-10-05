@@ -15,6 +15,7 @@ export interface SessionInput {
   status: SessionStatus;
   rescheduleReason?: string;
   backupNightId?: string;
+  requestId?: string;
 }
 
 interface SessionState {
@@ -53,6 +54,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
       status: input.status,
       rescheduleReason: input.rescheduleReason?.trim() || undefined,
       backupNightId: input.backupNightId,
+      requestId: input.requestId,
       schemaVersion: SCHEMA_VERSION,
     };
     await persistRow('sessions', session);

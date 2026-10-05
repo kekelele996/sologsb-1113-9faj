@@ -26,6 +26,10 @@ export interface ObsSession {
   rescheduleReason?: string;
   /** 替补夜 ID（迁移时补齐） */
   backupNightId?: string;
+  /** 申请编号（申请台侧关联；旧数据可能为空，升级时按目标和时段回填） */
+  requestId?: string;
+  /** 是否因申请单时长改动而失效（没执行的段失效等重排，拍完的照旧留档） */
+  invalidated?: boolean;
   /** 数据结构版本 */
   schemaVersion: number;
 }
